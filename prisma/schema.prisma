@@ -1,0 +1,34 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// A prediction market (e.g. "Will BTC exceed $100k?")
+model Market {
+  id          String   @id @default(cuid())
+  title       String
+  category    String
+  closingDate DateTime
+  status      String   @default("OPEN")  // OPEN, RESOLVED, VOIDED
+  outcome     String?                     // YES or NO (null until resolved)
+  createdAt   DateTime @default(now())
+
+  positions   Position[]
+}
+
+// A user's bet on a market
+model Position {
+  id         String   @id @default(cuid())
+  userId     String                        // Clerk user ID
+  marketId   String
+  side       String                        // YES or NO
+  quantity   Int
+  createdAt  DateTime @default(now())
+
+  market     Market   @relation(fields: [marketId], references: [id])
+
+  @@unique([userId, marketId])             // one position per user per market
+}
