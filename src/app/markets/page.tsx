@@ -24,20 +24,6 @@ export default async function MarketsPage() {
   )
 
   return (
-    <div className="min-h-screen bg-gray-950 text-white">
-
-      {/* Navbar */}
-      <nav className="border-b border-gray-800 px-6 py-4 flex items-center justify-between">
-        <h1 className="text-xl font-bold text-indigo-400">Kalshi</h1>
-        <div className="flex items-center gap-4">
-          <a href="/portfolio" className="text-gray-400 hover:text-white text-sm">
-            Portfolio
-          </a>
-          <UserButton afterSignOutUrl="/" />
-        </div>
-      </nav>
-
-      {/* Markets grid */}
       <main className="max-w-4xl mx-auto px-6 py-10">
         <h2 className="text-2xl font-semibold mb-6">Open Markets</h2>
 
@@ -51,6 +37,5 @@ export default async function MarketsPage() {
           ))}
         </div>
       </main>
-    </div>
   )
 }
