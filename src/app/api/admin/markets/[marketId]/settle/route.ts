@@ -10,7 +10,7 @@ const settleSchema = z.object({
 
 export async function POST(
     req:NextRequest,
-    {params}:{params:{marketId:string}}
+    context: { params: Promise<{ marketId: string }> }
 ) {
     const {userId} = await auth();
 
@@ -32,7 +32,9 @@ export async function POST(
     }
 
     try {
-        const results = await settleMarket(params.marketId,parsed.data.outcome);
+        const { marketId } = await context.params;
+        const results = await settleMarket(marketId,parsed.data.outcome);
+        console.log(results);
         return NextResponse.json({success:true,results},{status:200});
     } catch (err:any) {
         return NextResponse.json({success:false},{status:422})

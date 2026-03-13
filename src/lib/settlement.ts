@@ -11,6 +11,8 @@ export async function settleMarket(marketId:string,outcome:'YES'|'NO') {
         }
     })
 
+    console.log(market);
+
     if(!market) throw new Error(`Market with market Id:${marketId} doesn't exist`);
     if(market.status !== 'OPEN') throw new Error(`Cannot settle for market which is already closed`);
 

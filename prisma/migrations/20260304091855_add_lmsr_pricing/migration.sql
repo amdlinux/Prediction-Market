@@ -1,0 +1,17 @@
+-- AlterTable
+ALTER TABLE "Market" ADD COLUMN     "liquidityB" DOUBLE PRECISION NOT NULL DEFAULT 100,
+ADD COLUMN     "noShares" DOUBLE PRECISION NOT NULL DEFAULT 0,
+ADD COLUMN     "yesShares" DOUBLE PRECISION NOT NULL DEFAULT 0;
+
+-- CreateTable
+CREATE TABLE "PriceHistory" (
+    "id" TEXT NOT NULL,
+    "marketId" TEXT NOT NULL,
+    "yesPricePct" DOUBLE PRECISION NOT NULL,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "PriceHistory_pkey" PRIMARY KEY ("id")
+);
+
+-- AddForeignKey
+ALTER TABLE "PriceHistory" ADD CONSTRAINT "PriceHistory_marketId_fkey" FOREIGN KEY ("marketId") REFERENCES "Market"("id") ON DELETE RESTRICT ON UPDATE CASCADE;

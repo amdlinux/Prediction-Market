@@ -1,15 +1,15 @@
 import { db } from "@/lib/db";
+import { costToBuy, getNewShares, getPriceSummary } from "@/lib/lmsr";
 import { reserveBets } from "@/lib/wallet";
 import { auth } from "@clerk/nextjs/server";
 import { NextRequest, NextResponse } from "next/server";
-import { z } from "zod";
+import { success, z } from "zod";
 
 
 const PositionSchema = z.object({
     marketId:z.string(),
     side:z.enum(['YES','NO']),
-    quantity:z.number().int().positive(),
-    priceCents:z.number().int().min(1).max(99).default(50)
+    quantity:z.number().int().min(1).max(1000),
 })
 
 
@@ -27,8 +27,7 @@ export async function POST(req:NextRequest) {
         return NextResponse.json({error:parsed.error.flatten()},{status:400})
     }
 
-    const {marketId,side,quantity,priceCents} = parsed.data;
-    const totalCostCents = quantity*priceCents;
+    const {marketId,side,quantity} = parsed.data;
 
     const market = await db.market.findUnique({
         where:{
@@ -57,11 +56,15 @@ export async function POST(req:NextRequest) {
         )
     }
 
+    const totalCosts = costToBuy(side,quantity,market.yesShares,market.noShares,market.liquidityB);
+
+    const pricePerContract = Math.round(totalCosts/quantity);
+
     try {
         await reserveBets(
             userId,
-            totalCostCents,
-            `taking a position of ${quantity} on ${side} on ${market.title} `
+            totalCosts,
+            `taking a position of ${quantity} on ${side} in ${market.title} at ${pricePerContract} pe contract`
         )
     } catch (error:any) {
         return NextResponse.json({message:'No enough balance'},{status:401})
@@ -69,11 +72,57 @@ export async function POST(req:NextRequest) {
     
     //create or update the position
 
-    const position = await db.position.upsert({
-        where: {userId_marketId:{userId,marketId}},
-        update:{quantity:{increment:quantity}},
-        create:{userId,marketId,side,quantity}
-    })
+    const {newYesShares,newNoShares} = getNewShares(side,quantity,market.yesShares,market.noShares);
 
-    return NextResponse.json({position},{status:201})
+    const newPriceSummary = getPriceSummary(newYesShares,newNoShares,market.liquidityB);
+
+    await db.$transaction([
+        //update the market's share counts
+
+        db.market.update({
+            where:{
+                id:market.id
+            },
+            data:{
+                yesShares:newYesShares,
+                noShares:newNoShares
+            }
+        }),
+
+        ...(existing ? [
+            db.position.update({
+                where:{
+                    id:existing.id
+                },
+                data:{
+                    quantity:{increment:quantity},
+                    priceCents:pricePerContract
+                }
+            })
+        ] : [
+            db.position.create({
+                data:{
+                    userId,
+                    marketId,
+                    side,
+                    quantity,
+                    priceCents:pricePerContract
+                }
+            })
+        ]),
+
+        db.priceHistory.create({
+            data:{
+                marketId,
+                yesPricePct:newPriceSummary.yesCents
+            }
+        })
+    ])
+
+    return NextResponse.json({
+        success:true,
+        costCents:totalCosts,
+        pricePerContract,
+        newPrice:newPriceSummary
+    },{status:201})
 }   

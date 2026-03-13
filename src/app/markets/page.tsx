@@ -1,41 +1,128 @@
 // src/app/markets/page.tsx
-import { db }            from '@/lib/db'
-import { auth }          from '@clerk/nextjs/server'
-import { UserButton }    from '@clerk/nextjs'
-import MarketCard from '@/components/MarketCard'
+import { db }              from '@/lib/db'
+import { auth }            from '@clerk/nextjs/server'
+import MarketCard          from '@/components/MarketCard'
+import MarketFilters       from '@/components/MarketFilters'
+import { getPriceSummary } from '@/lib/lmsr'
+import { Suspense }        from 'react'
+import { haltExpiredMarkets } from '@/lib/marketLifecycle'
 
-export default async function MarketsPage() {
+export default async function MarketsPage({
+  searchParams,
+}: {
+  searchParams: { category?: string; search?: string }
+}) {
   const { userId } = await auth()
 
-  // Fetch all open markets from the database
-  const markets = await db.market.findMany({
-    where: { status: 'OPEN' },
-    orderBy: { createdAt: 'desc' },
-  })
+  // Silently halt any expired markets every time the page loads
+  // In production this is handled by the cron job — this is just a safety net
+  await haltExpiredMarkets();
 
-  // Fetch this user's existing positions (so we can show what they've already bet on)
-  const myPositions = await db.position.findMany({
-    where: { userId: userId! },
-  })
+  const params = await searchParams
+  const category = params.category ?? ''
+  const search   = params.search   ?? ''
 
-  // Build a quick lookup: marketId → position
+  // Build the where clause dynamically based on filters
+  const whereBase = {
+    ...(category ? { category } : {}),
+    ...(search   ? { title: { contains: search, mode: 'insensitive' as const } } : {}),
+  }
+
+  // Fetch open and halted markets separately
+  const [openMarkets, haltedMarkets] = await Promise.all([
+    db.market.findMany({
+      where  : { ...whereBase, status: 'OPEN' },
+      orderBy: { createdAt: 'desc' },
+    }),
+    db.market.findMany({
+      where  : { ...whereBase, status: 'HALTED' },
+      orderBy: { closingDate: 'desc' },
+    }),
+  ])
+
+  const myPositions = userId
+    ? await db.position.findMany({ where: { userId } })
+    : []
+
   const positionByMarket = new Map(
     myPositions.map(p => [p.marketId, p])
   )
 
-  return (
-      <main className="max-w-4xl mx-auto px-6 py-10">
-        <h2 className="text-2xl font-semibold mb-6">Open Markets</h2>
+  const allMarkets = [...openMarkets, ...haltedMarkets]
 
-        <div className="flex flex-col gap-4">
-          {markets.map(market => (
-            <MarketCard
-              key={market.id}
-              market={market}
-              existingPosition={positionByMarket.get(market.id) ?? null}
-            />
-          ))}
+  return (
+    <main className="max-w-4xl mx-auto px-6 py-10">
+      <div className="flex items-center justify-between mb-6">
+        <h2 className="text-2xl font-semibold">
+          Markets
+          <span className="ml-2 text-base text-gray-500 font-normal">
+            ({openMarkets.length} open)
+          </span>
+        </h2>
+      </div>
+
+      <Suspense>
+        <MarketFilters
+          currentCategory={category}
+          currentSearch={search}
+        />
+      </Suspense>
+
+      {/* Open markets */}
+      {openMarkets.length > 0 && (
+        <section className="mb-10">
+          <h3 className="text-sm font-medium text-gray-400 uppercase
+                         tracking-wide mb-4">
+            Open for trading
+          </h3>
+          <div className="flex flex-col gap-4">
+            {openMarkets.map(market => (
+              <MarketCard
+                key={market.id}
+                market={market}
+                existingPosition={positionByMarket.get(market.id) ?? null}
+                initialPrice={getPriceSummary(
+                  market.yesShares, market.noShares, market.liquidityB
+                )}
+              />
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* Halted markets */}
+      {haltedMarkets.length > 0 && (
+        <section>
+          <h3 className="text-sm font-medium text-yellow-500 uppercase
+                         tracking-wide mb-4">
+            Awaiting resolution
+          </h3>
+          <div className="flex flex-col gap-4">
+            {haltedMarkets.map(market => (
+              <MarketCard
+                key={market.id}
+                market={market}
+                existingPosition={positionByMarket.get(market.id) ?? null}
+                initialPrice={getPriceSummary(
+                  market.yesShares, market.noShares, market.liquidityB
+                )}
+              />
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* Empty state */}
+      {allMarkets.length === 0 && (
+        <div className="text-center py-20 text-gray-500">
+          <p className="text-lg mb-2">No markets found.</p>
+          {(category || search) && (
+            <a href="/markets" className="text-indigo-400 hover:text-indigo-300 text-sm">
+              Clear filters →
+            </a>
+          )}
         </div>
-      </main>
+      )}
+    </main>
   )
 }

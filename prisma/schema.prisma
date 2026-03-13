@@ -10,13 +10,19 @@ datasource db {
 model Market {
   id          String   @id @default(cuid())
   title       String
+  description String  @default("")
   category    String
   closingDate DateTime
-  status      String   @default("OPEN")  // OPEN, RESOLVED, VOIDED
+  status      String   @default("OPEN")  // OPEN, HALTED,RESOLVED, VOIDED
   outcome     String?                     // YES or NO (null until resolved)
   createdAt   DateTime @default(now())
 
+  yesShares Float   @default(0)                   // total YES shares
+  noShares  Float   @default(0)                   // total NO shares
+
+  liquidityB Float   @default(100)                   // total liquidity in the market (in dollars)
   positions   Position[]
+  priceHistory PriceHistory[]
 }
 
 // A user's bet on a market
@@ -50,4 +56,13 @@ model Transaction {
   amountCents Int                           // amount in cents (e.g. $100.00)
   createdAt  DateTime @default(now())
   description String
+}
+
+model PriceHistory {
+  id String @id @default(cuid())
+  marketId String
+  yesPricePct Float
+  createdAt DateTime @default(now())
+
+  market Market @relation(fields: [marketId], references: [id])
 }
