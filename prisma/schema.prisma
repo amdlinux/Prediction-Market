@@ -45,6 +45,8 @@ model Wallet {
   userId    String   @unique                        // Clerk user ID
   cashbalanceCents Int    @default(0)        
   reservedCents Int    @default(0)      // balance in cents (e.g. $100.00)
+  practiceBalanceCents    Int      @default(100000)  // $1,000 in cents
+  practiceReservedCents   Int      @default(0)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
@@ -65,4 +67,17 @@ model PriceHistory {
   createdAt DateTime @default(now())
 
   market Market @relation(fields: [marketId], references: [id])
+}
+
+model SettledPosition {
+  id              String   @id @default(cuid())
+  userId          String
+  marketId        String
+  marketTitle     String   // store the title since the market may be deleted later
+  side            String
+  quantity        Int
+  entryPriceCents Int      // what they paid per contract
+  exitPriceCents  Int      // what they received per contract (100 if won, entryPrice if lost)
+  realizedPnLCents Int     // net profit/loss in cents (can be negative)
+  settledAt       DateTime @default(now())
 }
