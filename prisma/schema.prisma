@@ -32,12 +32,13 @@ model Position {
   marketId   String
   side       String                        // YES or NO
   quantity   Int
-  priceCents Int      @default(50)                   // price in cents (e.g. 75 for $0.75)
+  priceCents Int      @default(50)         
+  isPractice Boolean @default(false)          // price in cents (e.g. 75 for $0.75)
   createdAt  DateTime @default(now())
 
   market     Market   @relation(fields: [marketId], references: [id])
 
-  @@unique([userId, marketId])             // one position per user per market
+  @@unique([userId, marketId,isPractice])             // one position per user per market
 }
 
 model Wallet {
