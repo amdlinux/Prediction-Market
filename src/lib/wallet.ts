@@ -1,6 +1,8 @@
 import { Wallet } from "@prisma/client";
 import { db } from "./db";
 
+const PRACTICE_SEED_CENTS = 100_000 
+
 export async function getOrCreateWallet(userId:string) {
     return db.wallet.upsert({
         where:{userId},
@@ -162,3 +164,82 @@ export async function settleLoserOrRefund(
         })
     ])
 }
+
+export function getPracticeAvailable(wallet:{
+    practiceBalanceCents:number,
+    practiceReservedCents:number
+}) {
+    return wallet.practiceBalanceCents - wallet.practiceReservedCents
+}
+
+export async function practiceReserveForBet(
+    userId:string,
+    amountCents:number,
+    description:string
+) { 
+    const wallet = await getOrCreateWallet(userId)
+    const available = getPracticeAvailable(wallet)
+
+    if(available<amountCents) {
+        throw new Error(
+           `Insufficient practice balance. You need $${(amountCents / 100).toFixed(2)} ` +
+            `but only have $${(available / 100).toFixed(2)} available.`
+        )
+    }
+
+    return await db.wallet.update({
+        where: {userId},
+        data:{
+            practiceReservedCents:{increment:amountCents}
+        }
+    })
+}
+
+export async function practiceSettleWinner(
+    userId:string,
+    costCents:number,
+    payoutCents:number
+) {
+    return await db.wallet.update({
+        where:{userId},
+        data:{
+            practiceReservedCents:{}
+        }
+    })
+}
+
+/*
+    for when user looses or market goes Void
+*/
+
+export async function practiceReleaseReserved(
+    userId:string,
+    costCents:number
+) { 
+    return await db.wallet.update({
+        where:{userId},
+        data:{
+            practiceReservedCents:{decrement:costCents}
+        }
+    })
+}
+/*
+    Reset practice account back to $1.000
+    Delete all practice positions too.
+*/
+
+export async function resetPracticeAccount(userId:string) {
+    await db.$transaction([
+        db.wallet.update({
+            where:{userId},
+            data:{
+                practiceBalanceCents:PRACTICE_SEED_CENTS,
+                practiceReservedCents:0
+            }
+        }),
+        db.position.deleteMany({
+            where:{userId,isPractice:true}
+        })
+    ])
+}
+
