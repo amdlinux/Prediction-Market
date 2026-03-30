@@ -1,6 +1,6 @@
 import { db } from "@/lib/db";
 import { costToBuy, getNewShares, getPriceSummary } from "@/lib/lmsr";
-import { reserveBets } from "@/lib/wallet";
+import { practiceReserveForBet, reserveBets, resetPracticeAccount } from "@/lib/wallet";
 import { auth } from "@clerk/nextjs/server";
 import { NextRequest, NextResponse } from "next/server";
 import { success, z } from "zod";
@@ -10,6 +10,7 @@ const PositionSchema = z.object({
     marketId:z.string(),
     side:z.enum(['YES','NO']),
     quantity:z.number().int().min(1).max(1000),
+    isPractice:z.boolean().default(false)
 })
 
 
@@ -27,7 +28,7 @@ export async function POST(req:NextRequest) {
         return NextResponse.json({error:parsed.error.flatten()},{status:400})
     }
 
-    const {marketId,side,quantity} = parsed.data;
+    const {marketId,side,quantity,isPractice} = parsed.data;
 
     const market = await db.market.findUnique({
         where:{
@@ -46,7 +47,7 @@ export async function POST(req:NextRequest) {
 
     const existing = await db.position.findUnique({
         where:{
-            userId_marketId:{userId,marketId}
+            userId_marketId_isPractice:{userId,marketId,isPractice}
         }
     })
     if(existing && existing.side !== side) {
@@ -56,16 +57,23 @@ export async function POST(req:NextRequest) {
         )
     }
 
+
+
     const totalCosts = costToBuy(side,quantity,market.yesShares,market.noShares,market.liquidityB);
 
     const pricePerContract = Math.round(totalCosts/quantity);
 
     try {
-        await reserveBets(
-            userId,
-            totalCosts,
-            `taking a position of ${quantity} on ${side} in ${market.title} at ${pricePerContract} pe contract`
-        )
+
+        if(isPractice) {
+            await practiceReserveForBet(userId,totalCosts,`[Practice] Bet ${quantity}x ${side} on "${market.title}"`)
+        } else {
+            await reserveBets(
+                userId,
+                totalCosts,
+                `taking a position of ${quantity} on ${side} in ${market.title} at ${pricePerContract} pe contract`
+            )
+        }
     } catch (error:any) {
         return NextResponse.json({message:'No enough balance'},{status:401})
     }
@@ -106,7 +114,8 @@ export async function POST(req:NextRequest) {
                     marketId,
                     side,
                     quantity,
-                    priceCents:pricePerContract
+                    priceCents:pricePerContract,
+                    isPractice
                 }
             })
         ]),
