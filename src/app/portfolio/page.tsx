@@ -1,41 +1,78 @@
 // src/app/portfolio/page.tsx
-import { db }                                from '@/lib/db'
-import { auth }                              from '@clerk/nextjs/server'
-import { getOrCreateWallet, getAvailableBalance } from '@/lib/wallet'
-import { UserButton }                        from '@clerk/nextjs'
-import Link                                  from 'next/link'
-
-const $ = (cents: number) => `$${(cents / 100).toFixed(2)}`
+import { auth }              from '@clerk/nextjs/server'
+import { db }                from '@/lib/db'
+import { getOrCreateWallet, getAvailableBalance, getPracticeAvailable } from '@/lib/wallet'
+import { getPriceSummary }   from '@/lib/lmsr'
+import { portfolioValue, $ } from '@/lib/pnl'
+import { UserButton }        from '@clerk/nextjs'
+import Link                  from 'next/link'
+import PortfolioStats        from '@/components/PortfolioStats'
+import OpenPositionCard      from '@/components/OpenPositionCard'
+import SettledPositionCard   from '@/components/SettledPositionCard'
+import PracticePanel         from '@/components/PracticePanel'
 
 export default async function PortfolioPage() {
   const { userId } = await auth()
 
-  const [wallet, positions, transactions] = await Promise.all([
-    getOrCreateWallet(userId!),
-    db.position.findMany({
-      where  : { userId: userId! },
-      include: { market: true },
-      orderBy: { createdAt: 'desc' },
-    }),
-    db.transaction.findMany({
-      where  : { userId: userId! },
-      orderBy: { createdAt: 'desc' },
-      take   : 30,
-    }),
-  ])
+  const [wallet, realPositions, practicePositions, settledPositions] =
+    await Promise.all([
+      getOrCreateWallet(userId!),
 
-  const available = getAvailableBalance(wallet)
+      // Real open positions
+      db.position.findMany({
+        where  : { userId: userId!, isPractice: false },
+        include: { market: { select: { title: true, status: true, yesShares: true, noShares: true, liquidityB: true } } },
+        orderBy: { createdAt: 'desc' },
+      }),
 
-  // Separate transactions by type for the history display
-  const deposits    = transactions.filter(t => t.type === 'DEPOSIT')
-  const bets        = transactions.filter(t => t.type === 'BET_PLACED')
-  const settlements = transactions.filter(t =>
-    t.type === 'BET_SETTLED' || t.type === 'BET_REFUNDED'
+      // Practice open positions
+      db.position.findMany({
+        where  : { userId: userId!, isPractice: true },
+        include: { market: { select: { title: true, status: true, yesShares: true, noShares: true, liquidityB: true } } },
+        orderBy: { createdAt: 'desc' },
+      }),
+
+      // Settled position history
+      db.settledPosition.findMany({
+        where  : { userId: userId! },
+        orderBy: { settledAt: 'desc' },
+        take   : 50,
+      }),
+    ])
+
+  // Calculate current price for each real open position
+  const realPositionsWithPrice = realPositions.map(pos => {
+    const price = getPriceSummary(
+      pos.market.yesShares,
+      pos.market.noShares,
+      pos.market.liquidityB,
+    )
+    const currentPriceCents = pos.side === 'YES' ? price.yesCents : price.noCents
+    return { ...pos, currentPriceCents }
+  })
+
+  // Portfolio value calculation
+  const pv = portfolioValue(
+    wallet.cashbalanceCents,
+    realPositionsWithPrice.map(p => ({
+      quantity         : p.quantity,
+      entryPriceCents  : p.priceCents,
+      currentPriceCents: p.currentPriceCents,
+    })),
   )
+
+  // Total realized P&L from settled positions
+  const totalRealizedPnL = settledPositions.reduce(
+    (sum, sp) => sum + sp.realizedPnLCents, 0
+  )
+
+  const available         = getAvailableBalance(wallet)
+  const practiceAvailable = getPracticeAvailable(wallet)
 
   return (
     <div className="min-h-screen bg-gray-950 text-white">
 
+      {/* Navbar */}
       <nav className="border-b border-gray-800 px-6 py-4 flex items-center justify-between">
         <h1 className="text-xl font-bold text-indigo-400">Kalshi</h1>
         <div className="flex items-center gap-4">
@@ -46,51 +83,48 @@ export default async function PortfolioPage() {
         </div>
       </nav>
 
-      <main className="max-w-4xl mx-auto px-6 py-10 space-y-10">
+      <main className="max-w-4xl mx-auto px-6 py-10 space-y-12">
 
-        {/* ── Wallet summary ──────────────────────────────── */}
+        {/* ── Real account ──────────────────────────────── */}
         <section>
-          <h2 className="text-2xl font-semibold mb-4">My Wallet</h2>
-          <div className="grid grid-cols-3 gap-4">
-            <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
-              <p className="text-gray-400 text-sm mb-1">Total Balance</p>
-              <p className="text-white text-2xl font-bold">
-                {$(wallet.cashbalanceCents)}
-              </p>
+          <h2 className="text-2xl font-semibold mb-6">Portfolio</h2>
+
+          {/* Stats */}
+          <PortfolioStats
+            totalValueCents       ={pv.totalValueCents}
+            cashCents             ={available}
+            openPositionsValueCents={pv.openPositionValueCents}
+            totalUnrealizedPnL    ={pv.totalUnrealizedPnL}
+            totalRealizedPnL      ={totalRealizedPnL}
+          />
+
+          {/* Wallet detail */}
+          <div className="mt-4 grid grid-cols-3 gap-3">
+            <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
+              <p className="text-gray-400 text-xs mb-1">Total Cash</p>
+              <p className="text-white font-bold">{$(wallet.cashbalanceCents)}</p>
             </div>
-            <div className="bg-gray-900 border border-yellow-900/40 rounded-xl p-5">
-              <p className="text-gray-400 text-sm mb-1">In Open Bets</p>
-              <p className="text-yellow-400 text-2xl font-bold">
-                {$(wallet.reservedCents)}
-              </p>
-              <p className="text-gray-500 text-xs mt-1">
-                locked until market resolves
-              </p>
+            <div className="bg-gray-900 border border-yellow-900/30 rounded-xl p-4">
+              <p className="text-gray-400 text-xs mb-1">Reserved in Bets</p>
+              <p className="text-yellow-400 font-bold">{$(wallet.reservedCents)}</p>
             </div>
-            <div className="bg-gray-900 border border-green-900/40 rounded-xl p-5">
-              <p className="text-gray-400 text-sm mb-1">Available</p>
-              <p className="text-green-400 text-2xl font-bold">
-                {$(available)}
-              </p>
-              <p className="text-gray-500 text-xs mt-1">
-                can spend or withdraw
-              </p>
+            <div className="bg-gray-900 border border-green-900/30 rounded-xl p-4">
+              <p className="text-gray-400 text-xs mb-1">Available</p>
+              <p className="text-green-400 font-bold">{$(available)}</p>
             </div>
           </div>
         </section>
 
-        {/* ── Open positions ──────────────────────────────── */}
+        {/* ── Open positions ────────────────────────────── */}
         <section>
           <h2 className="text-xl font-semibold mb-4">
             Open Positions
-            {positions.length > 0 && (
-              <span className="ml-2 text-sm text-gray-500 font-normal">
-                ({positions.length})
-              </span>
-            )}
+            <span className="ml-2 text-sm font-normal text-gray-500">
+              ({realPositionsWithPrice.length})
+            </span>
           </h2>
 
-          {positions.length === 0 ? (
+          {realPositionsWithPrice.length === 0 ? (
             <div className="bg-gray-900 border border-gray-800 rounded-xl p-8 text-center">
               <p className="text-gray-400 mb-3">No open positions.</p>
               <Link href="/markets" className="text-indigo-400 hover:text-indigo-300 text-sm">
@@ -99,117 +133,42 @@ export default async function PortfolioPage() {
             </div>
           ) : (
             <div className="flex flex-col gap-3">
-              {positions.map(pos => (
-                <div
+              {realPositionsWithPrice.map(pos => (
+                <OpenPositionCard
                   key={pos.id}
-                  className="bg-gray-900 border border-gray-800 rounded-xl p-4
-                             flex items-center justify-between"
-                >
-                  <div className="flex-1">
-                    <p className="text-white text-sm font-medium mb-1">
-                      {pos.market.title}
-                    </p>
-                    <p className="text-gray-500 text-xs">
-                      {pos.quantity} contract
-                      · paid {$(pos.priceCents)} each
-                      · locked {$(pos.quantity * pos.priceCents)}
-                    </p>
-                  </div>
-                  <span className={`
-                    ml-4 px-3 py-1 rounded-full text-sm font-bold
-                    ${pos.side === 'YES'
-                      ? 'bg-green-900/50 text-green-400'
-                      : 'bg-red-900/50   text-red-400'
-                    }
-                  `}>
-                    {pos.side}
-                  </span>
-                </div>
+                  position={pos}
+                  currentPriceCents={pos.currentPriceCents}
+                />
               ))}
             </div>
           )}
         </section>
 
-        {/* ── Settlement history ──────────────────────────── */}
-        {settlements.length > 0 && (
+        {/* ── Settled positions ─────────────────────────── */}
+        {settledPositions.length > 0 && (
           <section>
-            <h2 className="text-xl font-semibold mb-4">Settlement History</h2>
-            <div className="flex flex-col gap-2">
-              {settlements.map(tx => {
-                const isWin    = tx.description.startsWith('Won:')
-                const isRefund = tx.type === 'BET_REFUNDED'
-                return (
-                  <div
-                    key={tx.id}
-                    className={`
-                      flex items-center justify-between rounded-xl px-4 py-3 border
-                      ${isWin    ? 'bg-green-900/20 border-green-800/40' : ''}
-                      ${isRefund ? 'bg-blue-900/20  border-blue-800/40'  : ''}
-                      ${!isWin && !isRefund ? 'bg-gray-900 border-gray-800' : ''}
-                    `}
-                  >
-                    <div>
-                      <p className="text-white text-sm">{tx.description}</p>
-                      <p className="text-gray-500 text-xs mt-0.5">
-                        {new Date(tx.createdAt).toLocaleDateString('en-US', {
-                          month : 'short', day  : 'numeric',
-                          hour  : '2-digit', minute: '2-digit',
-                        })}
-                      </p>
-                    </div>
-                    <span className={`text-sm font-bold ml-4
-                      ${isWin    ? 'text-green-400' : ''}
-                      ${isRefund ? 'text-blue-400'  : ''}
-                      ${!isWin && !isRefund ? 'text-gray-400' : ''}
-                    `}>
-                      {isWin    ? `+${$(tx.amountCents)}` : ''}
-                      {isRefund ? `↩ ${$(tx.amountCents)}` : ''}
-                      {!isWin && !isRefund ? $(tx.amountCents) : ''}
-                    </span>
-                  </div>
-                )
-              })}
+            <h2 className="text-xl font-semibold mb-4">
+              Trade History
+              <span className="ml-2 text-sm font-normal text-gray-500">
+                ({settledPositions.length})
+              </span>
+            </h2>
+            <div className="flex flex-col gap-3">
+              {settledPositions.map(sp => (
+                <SettledPositionCard key={sp.id} position={sp} />
+              ))}
             </div>
           </section>
         )}
 
-        {/* ── Full transaction history ─────────────────────── */}
+        {/* ── Practice account ──────────────────────────── */}
         <section>
-          <h2 className="text-xl font-semibold mb-4">All Transactions</h2>
-          {transactions.length === 0 ? (
-            <p className="text-gray-500">No transactions yet.</p>
-          ) : (
-            <div className="flex flex-col gap-2">
-              {transactions.map(tx => (
-                <div
-                  key={tx.id}
-                  className="flex items-center justify-between bg-gray-900
-                             border border-gray-800 rounded-lg px-4 py-3"
-                >
-                  <div>
-                    <p className="text-white text-sm">{tx.description}</p>
-                    <p className="text-gray-500 text-xs mt-0.5">
-                      {new Date(tx.createdAt).toLocaleDateString('en-US', {
-                        month: 'short', day: 'numeric',
-                        hour : '2-digit', minute: '2-digit',
-                      })}
-                    </p>
-                  </div>
-                  <span className={`text-sm font-semibold ml-4
-                    ${tx.type === 'DEPOSIT'      ? 'text-green-400'  : ''}
-                    ${tx.type === 'BET_PLACED'   ? 'text-yellow-400' : ''}
-                    ${tx.type === 'BET_SETTLED'  ? 'text-green-400'  : ''}
-                    ${tx.type === 'BET_REFUNDED' ? 'text-blue-400'   : ''}
-                  `}>
-                    {tx.type === 'DEPOSIT'     ? `+${$(tx.amountCents)}` : ''}
-                    {tx.type === 'BET_PLACED'  ? `-${$(tx.amountCents)}` : ''}
-                    {tx.type === 'BET_SETTLED' ? `+${$(tx.amountCents)}` : ''}
-                    {tx.type === 'BET_REFUNDED'? `↩ ${$(tx.amountCents)}` : ''}
-                  </span>
-                </div>
-              ))}
-            </div>
-          )}
+          <PracticePanel
+            practiceBalance ={wallet.practiceBalanceCents}
+            practiceReserved={wallet.practiceReservedCents}
+            practiceAvailable={practiceAvailable}
+            positions       ={practicePositions}
+          />
         </section>
 
       </main>

@@ -11,10 +11,9 @@ export async function settleMarket(marketId:string,outcome:'YES'|'NO') {
         }
     })
 
-    console.log(market);
-
     if(!market) throw new Error(`Market with market Id:${marketId} doesn't exist`);
-    if(market.status !== 'OPEN') throw new Error(`Cannot settle for market which is already closed`);
+    if (market.status === 'RESOLVED') throw new Error('Market already resolved')
+    if (market.status === 'VOIDED')   throw new Error('Market already voided')
 
     await db.market.update({
         where:{
@@ -40,6 +39,7 @@ export async function settleMarket(marketId:string,outcome:'YES'|'NO') {
     const clerkClient = createClerkClient({secretKey:process.env.CLERK_SECRET_KEY});
 
     for (const position of positions) {
+        const won = position.side === outcome
         const costCents = position.priceCents*position.quantity;
         
         let userEmail:string|null = null;
@@ -58,6 +58,19 @@ export async function settleMarket(marketId:string,outcome:'YES'|'NO') {
                 const payoutCents = position.quantity*100;
                 await SettleWinner(position.userId,costCents,payoutCents,`Won: ${position.quantity}x ${position.side} on "${market.title}" — payout $${(payoutCents / 100).toFixed(2)}`)
 
+                await db.settledPosition.create({
+                    data:{
+                        userId: position.userId,
+                        marketId,
+                        marketTitle: market.title,
+                        side:position.side,
+                        quantity:position.quantity,
+                        entryPriceCents:position.priceCents,
+                        exitPriceCents:100,
+                        realizedPnLCents: payoutCents-costCents
+                    }
+                })
+
                 if(userEmail) {
                     await sendSettlementEmail({
                 to         : userEmail,
@@ -74,6 +87,20 @@ export async function settleMarket(marketId:string,outcome:'YES'|'NO') {
                 results.winner++;
             } else {
                 await settleLoserOrRefund(position.userId,costCents,`Lost: ${position.quantity}x ${position.side} on "${market.title}" — refund $${(costCents / 100).toFixed(2)}`,'BET_SETTLED');
+
+                await db.settledPosition.create({
+                    data: {
+                        userId          : position.userId,
+                        marketId,
+                        marketTitle     : market.title,
+                        side            : position.side,
+                        quantity        : position.quantity,
+                        entryPriceCents : position.priceCents,
+                        exitPriceCents  : position.priceCents,  // losers get cost basis back
+                        realizedPnLCents: 0,                    // break even
+                    },
+                })
+
                  if (userEmail) {
                 await sendSettlementEmail({
                     to         : userEmail,
@@ -146,6 +173,19 @@ export async function voidMarket(marketId:string,reason:string) {
                 `Refund: "${market.title}" was voided. Reason: ${reason}`,
                 'BET_REFUNDED'
             )
+
+            await db.settledPosition.create({
+                data: {
+                userId          : position.userId,
+                marketId,
+                marketTitle     : market.title,
+                side            : position.side,
+                quantity        : position.quantity,
+                entryPriceCents : position.priceCents,
+                exitPriceCents  : position.priceCents,
+                realizedPnLCents: 0,
+                },
+            })
             result.settled++;
         } catch (error:any) {
             console.log(`failed to refund for ${position.userId}`);

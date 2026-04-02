@@ -1,7 +1,9 @@
 // src/app/markets/layout.tsx
 import WalletBar  from '@/components/WalletBar'
+import PracticeToggle from '@/components/PracticeToggle'
 import { UserButton } from '@clerk/nextjs'
 import Link       from 'next/link'
+import { Suspense } from 'react'
 
 export default function MarketsLayout({
   children,
@@ -17,13 +19,14 @@ export default function MarketsLayout({
         <div className="flex items-center gap-4">
           <Link href="/markets"   className="text-gray-400 hover:text-white text-sm">Markets</Link>
           <Link href="/portfolio" className="text-gray-400 hover:text-white text-sm">Portfolio</Link>
+          <Suspense>
+            <PracticeToggle/>
+          </Suspense>
           <UserButton afterSignOutUrl="/" />
         </div>
       </nav>
-
       {/* Wallet strip — shows on every markets page */}
       <WalletBar />
-
       {children}
     </div>
   )
