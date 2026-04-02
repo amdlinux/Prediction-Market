@@ -38,10 +38,12 @@ export default function MarketCard({
   market,
   existingPosition,
   initialPrice,
+  isPractice = false
 }: {
   market           : Market
   existingPosition : Position
   initialPrice     : PriceSummary
+  isPractice?: boolean
 }) {
   const router   = useRouter()
   const [price,   setPrice]   = useState<PriceSummary>(initialPrice)
@@ -71,7 +73,7 @@ export default function MarketCard({
       const res = await fetch('/api/positions', {
         method : 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body   : JSON.stringify({ marketId: market.id, side, quantity }),
+        body   : JSON.stringify({ marketId: market.id, side, quantity,isPractice }),
       })
 
       const data = await res.json()
@@ -93,8 +95,17 @@ export default function MarketCard({
   })
 
   return (
-    <div className="bg-gray-900 border border-gray-800 rounded-xl p-5 hover:border-gray-700 transition">
-
+    <div className={`bg-gray-900 border border-gray-800 rounded-xl p-5 hover:border-gray-700 transition
+    ${isPractice
+        ? 'bg-purple-950/20 border-purple-800/40 hover:border-purple-700/60'
+        : 'bg-gray-900 border-gray-800 hover:border-gray-700'
+      }
+    `}>
+      {isPractice && (
+        <div className="text-purple-400 text-xs mb-2 font-medium">
+          🎮 Practice
+        </div>
+      )}
       {/* Header */}
       <div className="flex items-center justify-between mb-2">
         <div className="flex items-center gap-2">
