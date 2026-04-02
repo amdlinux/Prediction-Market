@@ -6,13 +6,17 @@ import MarketFilters       from '@/components/MarketFilters'
 import { getPriceSummary } from '@/lib/lmsr'
 import { Suspense }        from 'react'
 import { haltExpiredMarkets } from '@/lib/marketLifecycle'
+import { is } from 'zod/locales'
 
 export default async function MarketsPage({
   searchParams,
 }: {
-  searchParams: { category?: string; search?: string }
+  searchParams: { category?: string; search?: string, mode:string }
 }) {
   const { userId } = await auth()
+
+  //need to check if map, than use get('mode') or this
+  const isPractice = searchParams.mode === 'practice'
 
   // Silently halt any expired markets every time the page loads
   // In production this is handled by the cron job — this is just a safety net
@@ -52,6 +56,18 @@ export default async function MarketsPage({
 
   return (
     <main className="max-w-4xl mx-auto px-6 py-10">
+      {isPractice && (
+        <div className="mb-6 px-4 py-3 bg-purple-900/30 border border-purple-700/50
+                        rounded-xl flex items-center gap-3">
+          <span className="text-2xl">🎮</span>
+          <div>
+            <p className="text-purple-300 font-medium text-sm">Practice Mode</p>
+            <p className="text-purple-400/70 text-xs">
+              Bets use your $1,000 virtual balance. Prices are real, money isn't.
+            </p>
+          </div>
+        </div>
+      )}
       <div className="flex items-center justify-between mb-6">
         <h2 className="text-2xl font-semibold">
           Markets
@@ -84,6 +100,7 @@ export default async function MarketsPage({
                 initialPrice={getPriceSummary(
                   market.yesShares, market.noShares, market.liquidityB
                 )}
+                isPractice = {isPractice}
               />
             ))}
           </div>
