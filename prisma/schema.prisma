@@ -82,3 +82,13 @@ model SettledPosition {
   realizedPnLCents Int     // net profit/loss in cents (can be negative)
   settledAt       DateTime @default(now())
 }
+
+model PortfolioSnapshot {
+  id String @id @default(uuid())
+  userId String
+  valueCents Int
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
+}
+
