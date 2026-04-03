@@ -9,6 +9,8 @@
  * @param currentPriceCents - current market price for your side (in cents)
  */
 
+import { db } from "./db"
+
 export function unrealizedPnL(
     quantity:number,
     entryPriceCents:number,
@@ -97,4 +99,28 @@ export function pnlBg(cents: number): string {
   if (cents > 0) return 'bg-green-900/20 border-green-800/40'
   if (cents < 0) return 'bg-red-900/20   border-red-800/40'
   return 'bg-gray-900 border-gray-800'
+}
+
+export async function savePortfolioSnapshot(
+    userId:string,
+    valueCents:number
+) {
+    
+    const lastSnapshot = await db.portfolioSnapshot.findFirst({
+        where:{userId},
+        orderBy:{
+            createdAt:'desc'
+        }
+    })
+
+    const oneHourAgo = new Date(Date.now() - 60*60*1000)
+
+    if(lastSnapshot && lastSnapshot.createdAt > oneHourAgo) return 
+
+    await db.portfolioSnapshot.create({
+        data:{
+            userId,
+            valueCents
+        }
+    })
 }
