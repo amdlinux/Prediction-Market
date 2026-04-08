@@ -3,13 +3,14 @@ import { auth }              from '@clerk/nextjs/server'
 import { db }                from '@/lib/db'
 import { getOrCreateWallet, getAvailableBalance, getPracticeAvailable } from '@/lib/wallet'
 import { getPriceSummary }   from '@/lib/lmsr'
-import { portfolioValue, $ } from '@/lib/pnl'
+import { portfolioValue, $, savePortfolioSnapshot } from '@/lib/pnl'
 import { UserButton }        from '@clerk/nextjs'
 import Link                  from 'next/link'
 import PortfolioStats        from '@/components/PortfolioStats'
 import OpenPositionCard      from '@/components/OpenPositionCard'
 import SettledPositionCard   from '@/components/SettledPositionCard'
 import PracticePanel         from '@/components/PracticePanel'
+import PortfolioChart from '@/components/PortfolioChart'
 
 export default async function PortfolioPage() {
   const { userId } = await auth()
@@ -61,10 +62,20 @@ export default async function PortfolioPage() {
     })),
   )
 
+  await savePortfolioSnapshot(userId!,pv.totalValueCents)
+
   // Total realized P&L from settled positions
   const totalRealizedPnL = settledPositions.reduce(
     (sum, sp) => sum + sp.realizedPnLCents, 0
   )
+
+  const snapshots = await db.portfolioSnapshot.findMany({
+    where:{userId:userId!},
+    orderBy:{
+      createdAt:'asc'
+    },
+    take:90
+  })
 
   const available         = getAvailableBalance(wallet)
   const practiceAvailable = getPracticeAvailable(wallet)
@@ -98,6 +109,12 @@ export default async function PortfolioPage() {
             totalRealizedPnL      ={totalRealizedPnL}
           />
 
+          {snapshots.length >= 2 && (
+            <div className="mt-6">
+              <PortfolioChart snapshots={snapshots} />
+            </div>
+          )}
+          
           {/* Wallet detail */}
           <div className="mt-4 grid grid-cols-3 gap-3">
             <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
