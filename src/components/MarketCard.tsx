@@ -51,7 +51,6 @@ export default function MarketCard({
   const [loading,  setLoading]  = useState<'YES' | 'NO' | null>(null)
   const [error,    setError]    = useState('')
   const [showChart, setShowChart] = useState(false)
-
   // Estimated cost for the current quantity
   // We fetch this from the server so it uses exact LMSR math
   const [estimatedCost, setEstimatedCost] = useState<number | null>(null)
