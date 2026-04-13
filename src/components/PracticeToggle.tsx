@@ -1,26 +1,34 @@
-// src/components/PracticeToggle.tsx
-'use client'
-
-import { useRouter, useSearchParams } from 'next/navigation'
+"use client"
+import { useRouter, useSearchParams, usePathname } from 'next/navigation'
+import { useTransition } from 'react'
 
 export default function PracticeToggle() {
-  const router      = useRouter()
+  const router = useRouter()
+  const pathname = usePathname()
   const searchParams = useSearchParams()
-  const isPractice  = searchParams.get('mode') === 'practice'
+
+  const [isPending, startTransition] = useTransition()
+
+  const isPractice = searchParams.get('mode') === 'practice'
 
   function toggle() {
-    const params = new URLSearchParams(searchParams.toString())
-    if (isPractice) {
-      params.delete('mode')
-    } else {
-      params.set('mode', 'practice')
-    }
-    router.push(`/markets?${params.toString()}`)
+    startTransition(() => {
+      const params = new URLSearchParams(window.location.search)
+
+      if (isPractice) {
+        params.delete('mode')
+      } else {
+        params.set('mode', 'practice')
+      }
+
+      router.replace(`${pathname}?${params.toString()}`)
+    })
   }
 
   return (
     <button
       onClick={toggle}
+      disabled={isPending}
       className={`
         flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition hover:cursor-pointer
         ${isPractice

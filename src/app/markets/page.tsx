@@ -11,18 +11,19 @@ import { is } from 'zod/locales'
 export default async function MarketsPage({
   searchParams,
 }: {
-  searchParams: { category?: string; search?: string, mode:string }
+  searchParams: { category?: string; search?: string, mode?:string }
 }) {
   const { userId } = await auth()
 
   //need to check if map, than use get('mode') or this
-  const isPractice = searchParams.mode === 'practice'
+  const params = await searchParams
+
+  const isPractice = params.mode === 'practice'
 
   // Silently halt any expired markets every time the page loads
   // In production this is handled by the cron job — this is just a safety net
   await haltExpiredMarkets();
-
-  const params = await searchParams
+  
   const category = params.category ?? ''
   const search   = params.search   ?? ''
 
